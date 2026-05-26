@@ -100,3 +100,5 @@ constructora/
 | Comercial | Precio de mercado, ritmo de ventas                |
 
 Los gráficos y KPIs son visibles para todos los sectores en tiempo real.
+
+
