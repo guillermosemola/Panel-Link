@@ -117,6 +117,9 @@ export default function GestionPage() {
         descalce={data.descalce}
         unidades={data.unidades}
         transacciones={data.transacciones}
+        puedeEditar={['finanzas','admin','comercial'].includes(data.perfil?.sector)}
+        empresaId={data.perfil?.empresa_id}
+        onRefresh={load}
       />
     </div>
   )
