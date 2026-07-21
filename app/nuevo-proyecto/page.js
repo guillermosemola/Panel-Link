@@ -234,21 +234,38 @@ function NuevoProyectoInner() {
             <Field label="Plazo de obra" val={`${P.plazo} meses`}><input type="range" style={sRange} min={12} max={72} step={1} value={P.plazo} onChange={e=>setVal('plazo',+e.target.value)}/></Field>
             <span style={sLabel}>Costos (USD/m²)</span>
             <Field label="Construcción" val={`$${P.construccion}`}><input type="range" style={sRange} min={200} max={800} step={5} value={P.construccion} onChange={e=>setVal('construccion',+e.target.value)}/></Field>
-            <Field label="Terreno + Infraestructura" val={`$${P.terreno}`}><input type="range" style={sRange} min={0} max={600} step={5} value={P.terreno} onChange={e=>setVal('terreno',+e.target.value)}/></Field>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'0.5px solid #f0ede8',fontSize:13,color:'#555',marginBottom:8}}>
-              <span>Terreno por canje</span>
-              <label style={{position:'relative',width:34,height:18,cursor:'pointer'}}>
-                <input type="checkbox" style={{display:'none'}} checked={P.canje} onChange={e=>setVal('canje',e.target.checked)}/>
-                <div style={{position:'absolute',inset:0,borderRadius:10,background:P.canje?'#1a1a18':'#e0ddd6',transition:'background .2s'}}>
-                  <div style={{position:'absolute',top:2,left:P.canje?18:2,width:14,height:14,borderRadius:'50%',background:'#fff',transition:'left .2s'}}/>
-                </div>
-              </label>
-            </div>
+            <Field label="Terreno + Infraestructura (USD/m²)" val={`$${P.terreno}`}><input type="range" style={sRange} min={0} max={600} step={5} value={P.terreno} onChange={e=>setVal('terreno',+e.target.value)}/></Field>
+
+            <Field label="% Canje terreno (metros cedidos al dueño)" val={`${(P.pct_canje_terreno||0).toFixed(1)}%`}>
+              <input type="range" style={sRange} min={0} max={40} step={0.5}
+                value={P.pct_canje_terreno||0} onChange={e=>setVal('pct_canje_terreno',+e.target.value)}/>
+            </Field>
+            {(P.pct_canje_terreno||0)>0 && R && (
+              <div style={{fontSize:11,color:'#888',marginBottom:8,padding:'6px 10px',borderRadius:6,background:'rgba(255,255,255,.04)'}}>
+                → {Math.round(R.m2_canje_terreno)} m² cedidos al dueño · valor implícito: ${Math.round(R.valor_impl_canje_terreno).toLocaleString('es-AR')}
+              </div>
+            )}
+
+            <Field label="% Canje honorarios Link (metros cedidos como honorarios de desarrollo)" val={`${(P.pct_canje_honorarios||0).toFixed(1)}%`}>
+              <input type="range" style={sRange} min={0} max={25} step={0.5}
+                value={P.pct_canje_honorarios||0} onChange={e=>setVal('pct_canje_honorarios',+e.target.value)}/>
+            </Field>
+            {(P.pct_canje_honorarios||0)>0 && R && (
+              <div style={{fontSize:11,color:'#888',marginBottom:8,padding:'6px 10px',borderRadius:6,background:'rgba(255,255,255,.04)'}}>
+                → {Math.round(R.m2_canje_honorarios)} m² cedidos a Link · valor implícito: ${Math.round(R.valor_impl_canje_honorarios).toLocaleString('es-AR')}
+              </div>
+            )}
+
+            {R && R.m2_canje_total>0 && (
+              <div style={{fontSize:11,color:'#f59e0b',background:'rgba(245,158,11,.08)',borderRadius:6,padding:'8px 10px',marginBottom:8,border:'1px solid rgba(245,158,11,.2)'}}>
+                ⚠ Canje total: {Math.round(R.m2_canje_total)} m² ({((R.m2_canje_total/R.m2_vend)*100).toFixed(1)}% del vendible) · m² libres para venta en efectivo: <strong>{Math.round(R.m2_libres)} m²</strong>
+              </div>
+            )}
+
             {[{key:'comercial',label:'Comercialización %',min:0,max:10,step:.1,fv:v=>`${v.toFixed(1)}%`},
               {key:'iva',label:'IVA construcción %',min:0,max:15,step:.1,fv:v=>`${v.toFixed(1)}%`},
               {key:'iibb',label:'IIBB + TEM %',min:0,max:8,step:.05,fv:v=>`${v.toFixed(2)}%`},
               {key:'admin',label:'Administración USD/m²',min:0,max:50,step:.5,fv:v=>`$${v}`},
-              {key:'honorarios',label:'Honorarios Link %',min:5,max:20,step:.5,fv:v=>`${v.toFixed(1)}%`},
             ].map(f=>(
               <Field key={f.key} label={f.label} val={f.fv(P[f.key])}><input type="range" style={sRange} min={f.min} max={f.max} step={f.step} value={P[f.key]} onChange={e=>setVal(f.key,+e.target.value)}/></Field>
             ))}
@@ -278,10 +295,10 @@ function NuevoProyectoInner() {
               {R.viable?`✅ Proyecto viable. Margen de fondeo: ${(R.margen_fondeo*100).toFixed(1)}%`:`⚠️ Costo ($${fmt(Math.round(R.c_total_impl))}/m²) supera precio de fondeo ($${fmt(P.pfondeo)}/m²).`}
             </div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:20}}>
-              {[{l:'Costo total/m²',v:`$${fmt(Math.round(R.c_total_impl))}`,s:P.canje?`Cash: $${fmt(Math.round(R.c_total_cash))}`:'sin canje'},
+              {[{l:'Costo/m² vendible libre',v:R.costo_por_m2_libre?`$${fmt(Math.round(R.costo_por_m2_libre))}`:'—',s:`Incl. canje · ${fmt(Math.round(R.m2_libres))} m² libres`},
                 {l:'Precio de fondeo',v:`$${fmt(P.pfondeo)}`,s:`Margen: ${(R.margen_fondeo*100).toFixed(1)}%`},
                 {l:'TIR anual inv.',v:R.tir_a!=null?`${(R.tir_a*100).toFixed(1)}%`:'—',s:`Mensual: ${R.tir_m!=null?`${(R.tir_m*100).toFixed(2)}%`:'—'}`},
-                {l:'Costo total obra',v:fmtM(R.costo_total_impl),s:`${fmt(R.n_uds)} uds · ${fmt(Math.round(R.m2_dep))} m²`},
+                {l:'Costo total obra',v:fmtM(R.costo_total_impl),s:`${fmt(R.n_uds)} uds · ${fmt(Math.round(R.m2_libres))} m² libres`},
               ].map((k,i)=>(
                 <div key={i} style={{background:'#fff',border:'0.5px solid #e0ddd6',borderRadius:10,padding:'14px'}}>
                   <div style={{fontSize:10,fontWeight:600,letterSpacing:'.08em',textTransform:'uppercase',color:'#aaa',marginBottom:6}}>{k.l}</div>
@@ -323,6 +340,29 @@ function NuevoProyectoInner() {
                     <td style={{fontFamily:'monospace',textAlign:'right',fontWeight:600,color:'#1a1a18',padding:'8px 0',borderTop:'0.5px solid #e0ddd6'}}>{fmtM(R.costo_total_impl)}</td>
                     <td style={{borderTop:'0.5px solid #e0ddd6'}}/>
                   </tr>
+                  {R.m2_canje_total > 0 && (
+                    <>
+                      <tr><td colSpan={4} style={{padding:'10px 0 4px',fontSize:10,fontWeight:600,letterSpacing:'.08em',textTransform:'uppercase',color:'#aaa'}}>Estructura de canjes</td></tr>
+                      <tr>
+                        <td style={{fontSize:12,padding:'5px 0',color:'#555'}}>Canje terreno ({(P.pct_canje_terreno||0).toFixed(1)}% del vendible)</td>
+                        <td style={{fontFamily:'monospace',textAlign:'right',fontSize:12}}>{Math.round(R.m2_canje_terreno)} m²</td>
+                        <td style={{fontFamily:'monospace',textAlign:'right',fontSize:12,color:'#888'}}>{fmtM(R.valor_impl_canje_terreno)}</td>
+                        <td style={{fontSize:11,color:'#aaa',textAlign:'right'}}>valor impl.</td>
+                      </tr>
+                      <tr>
+                        <td style={{fontSize:12,padding:'5px 0',color:'#555'}}>Canje honorarios Link ({(P.pct_canje_honorarios||0).toFixed(1)}% del vendible)</td>
+                        <td style={{fontFamily:'monospace',textAlign:'right',fontSize:12}}>{Math.round(R.m2_canje_honorarios)} m²</td>
+                        <td style={{fontFamily:'monospace',textAlign:'right',fontSize:12,color:'#888'}}>{fmtM(R.valor_impl_canje_honorarios)}</td>
+                        <td style={{fontSize:11,color:'#aaa',textAlign:'right'}}>valor impl.</td>
+                      </tr>
+                      <tr style={{background:'rgba(245,158,11,.06)'}}>
+                        <td style={{fontSize:12,fontWeight:600,padding:'6px 0',color:'#92400e'}}>⭐ Costo real / m² vendible libre</td>
+                        <td style={{fontFamily:'monospace',textAlign:'right',fontWeight:600,color:'#92400e',fontSize:13}}>${R.costo_por_m2_libre?R.costo_por_m2_libre.toFixed(0):'—'}</td>
+                        <td style={{fontFamily:'monospace',textAlign:'right',fontWeight:600,color:'#92400e',fontSize:13}}>{fmt(Math.round(R.m2_libres))} m² libres</td>
+                        <td style={{fontSize:11,color:'#92400e',textAlign:'right'}}>base pricing</td>
+                      </tr>
+                    </>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -384,5 +424,3 @@ export default function NuevoProyectoPage() {
     </Suspense>
   )
 }
-
-//
