@@ -1,76 +1,222 @@
 'use client'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
-
-const fmtM  = n => { if(n==null||n===0)return'—'; const a=Math.abs(n),s=n<0?'-':''; if(a>=1e6)return`${s}$${(a/1e6).toFixed(2)}M`; if(a>=1e3)return`${s}$${Math.round(a/1e3)}K`; return`${s}$${Math.round(a)}` }
-const fmt2  = n => n==null?'—':new Intl.NumberFormat('es-AR').format(Math.round(n))
-const fmtP  = n => n==null?'—':`${Number(n).toFixed(1)}%`
-
-const SEM = {
-  verde:    {dot:'#22c55e',bg:'#052e16',border:'#166534',label:'En control', icon:'🟢'},
-  amarillo: {dot:'#f59e0b',bg:'#1c1400',border:'#854d0e',label:'Atención',   icon:'🟡'},
-  rojo:     {dot:'#ef4444',bg:'#1c0a0a',border:'#7f1d1d',label:'Crítico',    icon:'🔴'},
-  gris:     {dot:'#6b7280',bg:'#111418',border:'#374151',label:'Sin datos',  icon:'⚪'},
-}
+ 
+// ── Utilidades ──────────────────────────────────────────────────────────────
+const fmtM   = n => { if(!n&&n!==0)return'—'; const a=Math.abs(n),s=n<0?'-':''; if(a>=1e6)return`${s}$${(a/1e6).toFixed(2)}M`; if(a>=1e3)return`${s}$${(a/1e3).toFixed(0)}K`; return`${s}$${Math.round(a)}` }
+const fmtP   = n => n==null?'—':`${Number(n).toFixed(1)}%`
+const fmtNum = n => n==null?'—':new Intl.NumberFormat('es-AR').format(Math.round(n))
+const fmtTC  = n => n?`$${new Intl.NumberFormat('es-AR').format(Math.round(n))}`:'—'
+ 
 const SECTOR_COLOR = {
-  finanzas:{bg:'#E6F1FB',color:'#0C447C'}, tecnica:{bg:'#EEEDFE',color:'#3C3489'},
-  obra:{bg:'#FAEEDA',color:'#633806'}, comercial:{bg:'#E1F5EE',color:'#085041'},
+  finanzas:{bg:'rgba(200,169,110,.12)',color:'#C8A96E'},
+  tecnica: {bg:'rgba(96,165,250,.12)', color:'#60A5FA'},
+  obra:    {bg:'rgba(245,158,11,.12)', color:'#F5A623'},
+  comercial:{bg:'rgba(61,214,140,.12)',color:'#3DD68C'},
 }
-
+ 
+const SEM_CFG = {
+  verde:    {color:'#3DD68C',bg:'rgba(61,214,140,.08)', border:'rgba(61,214,140,.2)', label:'En control'},
+  amarillo: {color:'#F5A623',bg:'rgba(245,166,35,.08)', border:'rgba(245,166,35,.2)', label:'Atención'},
+  rojo:     {color:'#F75555',bg:'rgba(247,85,85,.08)',  border:'rgba(247,85,85,.2)',  label:'Crítico'},
+  gris:     {color:'#5A5F66',bg:'rgba(90,95,102,.08)',  border:'rgba(90,95,102,.2)',  label:'Sin datos'},
+}
+ 
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Geist:wght@400;500;600&display=swap');
-.db{--bg:#0a0c0e;--s1:#111418;--s2:#161a1f;--bd:#1f2937;--tx:#e8ecef;--dim:#6b7280;--fnt:#4b5563;
-  font-family:'Geist',system-ui,sans-serif;background:var(--bg);color:var(--tx);min-height:100vh}
-.db-nav{background:#0a0c0e;border-bottom:1px solid var(--bd);padding:0 2rem;height:54px;
-  display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
-.db-logo{width:30px;height:30px;background:#fff;border-radius:7px;display:flex;align-items:center;justify-content:center}
-.db-main{max-width:1400px;margin:0 auto;padding:2rem 1.5rem}
-.db-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:14px}
-.db-h1{font-size:28px;font-weight:600;letter-spacing:-.02em;margin:0 0 4px}
-.db-sub{font-size:13px;color:var(--dim)}
-.db-btn-pri{display:flex;align-items:center;gap:8px;padding:10px 20px;background:#fff;color:#0a0c0e;
-  border:none;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
-.db-btn-sec{display:flex;align-items:center;gap:8px;padding:10px 18px;background:var(--s1);color:var(--tx);
-  border:1px solid var(--bd);border-radius:9px;font-size:13px;cursor:pointer;font-family:inherit}
-.db-kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px}
-@media(max-width:1100px){.db-kpis{grid-template-columns:repeat(3,1fr)}}
-.db-kpi{background:var(--s1);border:1px solid var(--bd);border-radius:12px;padding:16px}
-.db-kpi-l{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--fnt);margin-bottom:8px}
-.db-kpi-v{font-family:'Geist Mono',monospace;font-size:22px;font-weight:600;line-height:1;margin-bottom:4px}
-.db-kpi-s{font-size:11px;color:var(--dim)}
-.db-section{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--fnt);margin-bottom:14px;margin-top:28px}
-.db-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:28px}
-.db-pcard{background:var(--s1);border:1px solid var(--bd);border-radius:12px;padding:18px;transition:all .15s}
-.db-pcard:hover{border-color:#374151;box-shadow:0 4px 20px rgba(0,0,0,.3)}
-.db-pcard-name{font-size:15px;font-weight:600;margin-bottom:3px}
-.db-pcard-desc{font-size:12px;color:var(--dim)}
-.db-sem-badge{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600;
-  padding:3px 10px;border-radius:20px;border:1px solid;white-space:nowrap;flex-shrink:0}
-.db-sem-dot{width:6px;height:6px;border-radius:50%}
-.db-pcard-btn{flex:1;padding:8px;font-size:12px;font-weight:500;border-radius:7px;border:1px solid var(--bd);
-  background:transparent;color:var(--tx);cursor:pointer;font-family:inherit;transition:all .15s}
-.db-pcard-btn:hover{background:var(--s2)}
-.db-pcard-btn.pri{background:#fff;color:#0a0c0e;border-color:#fff;font-weight:600}
-.db-pcard-btn.pri:hover{background:#e5e7eb}
-.db-alert{background:#1c0a0a;border:1px solid #7f1d1d;border-radius:10px;padding:12px 16px;
-  font-size:12px;color:#fca5a5;margin-bottom:20px;display:flex;gap:10px;align-items:flex-start}
-.db-chart-wrap{background:var(--s1);border:1px solid var(--bd);border-radius:12px;padding:20px;margin-bottom:20px}
-.db-chart-title{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--fnt);margin-bottom:16px}
-.db-tbl-wrap{background:var(--s1);border:1px solid var(--bd);border-radius:12px;overflow:auto;margin-bottom:20px}
-.db-tbl{width:100%;border-collapse:collapse;font-size:13px}
-.db-tbl th{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--fnt);
-  padding:12px 14px;border-bottom:1px solid var(--bd);background:var(--s2);text-align:left;white-space:nowrap}
-.db-tbl th.r,.db-tbl td.r{text-align:right}
-.db-tbl td{padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.04);color:var(--tx)}
-.db-tbl tr{cursor:pointer;transition:background .1s}
-.db-tbl tr:hover td{background:rgba(255,255,255,.02)}
-.db-tbl tr:last-child td{border-bottom:none}
-.db-mono{font-family:'Geist Mono',monospace}
-.db-bar{height:4px;background:#1f2937;border-radius:6px;overflow:hidden;margin-top:6px}
-.db-bar-fill{height:100%;border-radius:6px;transition:width .5s}
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
+ 
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0E0F11}
+ 
+.db{
+  --bg:#0E0F11; --s1:#16181C; --s2:#1E2126; --s3:#24282F;
+  --bd:rgba(255,255,255,.06); --bd2:rgba(255,255,255,.1);
+  --tx:#E8E9EB; --dim:#7C8186; --fnt:#4A4F56;
+  --gold:#C8A96E; --green:#3DD68C; --red:#F75555; --amber:#F5A623;
+  font-family:'Inter',system-ui,sans-serif;
+  background:var(--bg); color:var(--tx);
+  min-height:100vh; font-size:13px;
+}
+ 
+/* NAVBAR */
+.nav{
+  background:rgba(14,15,17,.9);
+  backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--bd);
+  padding:0 2rem; height:52px;
+  display:flex; align-items:center; justify-content:space-between;
+  position:sticky; top:0; z-index:100;
+}
+.nav-logo{display:flex;align-items:center;gap:10px}
+.nav-mark{
+  width:28px;height:28px;
+  background:var(--gold);
+  border-radius:6px;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'DM Serif Display',serif;
+  font-size:14px;color:#0E0F11;font-weight:400;
+}
+.nav-brand{font-size:13px;font-weight:600;letter-spacing:.02em}
+.nav-sub{font-size:10px;color:var(--dim);letter-spacing:.04em;text-transform:uppercase}
+.nav-actions{display:flex;align-items:center;gap:8px}
+.nav-btn{
+  padding:5px 12px; border-radius:6px; font-size:12px;
+  border:1px solid var(--bd); background:transparent;
+  color:var(--dim); cursor:pointer; font-family:inherit;
+  transition:all .15s;
+}
+.nav-btn:hover{border-color:var(--bd2);color:var(--tx)}
+.nav-btn.pri{background:var(--gold);color:#0E0F11;border-color:var(--gold);font-weight:600}
+.nav-btn.pri:hover{background:#D4B97E}
+.nav-sector{
+  font-size:11px;font-weight:500;
+  padding:3px 10px;border-radius:20px;
+}
+ 
+/* TICKER */
+.ticker{
+  border-bottom:1px solid var(--bd);
+  padding:0 2rem;
+  display:flex; align-items:stretch; gap:0;
+  overflow-x:auto;
+}
+.ticker-item{
+  display:flex;flex-direction:column;justify-content:center;
+  padding:10px 20px;
+  border-right:1px solid var(--bd);
+  min-width:160px; flex-shrink:0;
+}
+.ticker-item:first-child{padding-left:0}
+.ticker-label{font-size:9px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--fnt);margin-bottom:3px}
+.ticker-val{font-family:'DM Serif Display',serif;font-size:20px;color:var(--tx);line-height:1}
+.ticker-sub{font-size:10px;color:var(--dim);margin-top:2px;font-family:'JetBrains Mono',monospace}
+.ticker-delta{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:500}
+ 
+/* MAIN */
+.main{max-width:1400px;margin:0 auto;padding:1.5rem 2rem 4rem}
+ 
+/* SECCIÓN HEADER */
+.sec-head{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:12px;
+}
+.sec-title{
+  font-size:10px;font-weight:600;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--fnt);
+}
+ 
+/* GRID LAYOUT */
+.row{display:grid;gap:12px;margin-bottom:12px}
+.row-2{grid-template-columns:1fr 1fr}
+.row-3{grid-template-columns:repeat(3,1fr)}
+.row-auto{grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+ 
+/* CARDS */
+.card{
+  background:var(--s1);
+  border:1px solid var(--bd);
+  border-radius:10px;
+  padding:18px;
+}
+.card-sm{padding:14px}
+.card-title{
+  font-size:10px;font-weight:600;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--fnt);
+  margin-bottom:14px;
+}
+ 
+/* SEMAFORO GRID */
+.sem-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(200px,1fr));
+  gap:8px;
+}
+.sem-card{
+  border-radius:8px;
+  padding:12px 14px;
+  border:1px solid;
+  cursor:pointer;
+  transition:all .15s;
+  position:relative;
+  overflow:hidden;
+}
+.sem-card::before{
+  content:'';
+  position:absolute;top:0;left:0;right:0;
+  height:2px;
+}
+.sem-card:hover{transform:translateY(-1px);filter:brightness(1.08)}
+.sem-card-name{font-size:13px;font-weight:600;margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sem-card-metrics{display:flex;gap:12px;flex-wrap:wrap}
+.sem-metric{display:flex;flex-direction:column;gap:1px}
+.sem-metric-l{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--fnt)}
+.sem-metric-v{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600}
+.sem-bar-wrap{margin-top:8px;height:3px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden}
+.sem-bar{height:100%;border-radius:2px;transition:width .6s}
+.sem-dot{
+  width:6px;height:6px;border-radius:50%;
+  position:absolute;top:12px;right:12px;
+}
+ 
+/* TABLA DE PROYECTOS */
+.ptbl{width:100%;border-collapse:collapse}
+.ptbl th{
+  font-size:9px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--fnt);padding:8px 12px;
+  border-bottom:1px solid var(--bd);
+  text-align:left;white-space:nowrap;
+  background:var(--s1);
+}
+.ptbl th.r,.ptbl td.r{text-align:right}
+.ptbl td{
+  padding:11px 12px;
+  border-bottom:1px solid rgba(255,255,255,.03);
+  vertical-align:middle;
+}
+.ptbl tbody tr{cursor:pointer;transition:background .1s}
+.ptbl tbody tr:hover td{background:rgba(255,255,255,.025)}
+.ptbl tbody tr:last-child td{border-bottom:none}
+.mono{font-family:'JetBrains Mono',monospace}
+.serif{font-family:'DM Serif Display',serif}
+ 
+/* BADGE */
+.badge{
+  display:inline-flex;align-items:center;gap:4px;
+  font-size:10px;font-weight:500;
+  padding:2px 8px;border-radius:12px;
+}
+.badge-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+ 
+/* STOCK BARS */
+.stock-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.stock-name{font-size:12px;color:var(--dim);width:120px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stock-bar-bg{flex:1;height:6px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden;display:flex}
+.stock-vend{height:100%;background:#F75555;border-radius:3px 0 0 3px}
+.stock-canje{height:100%;background:#C8A96E}
+.stock-res{height:100%;background:#F5A623}
+.stock-disp{height:100%;background:#3DD68C;border-radius:0 3px 3px 0}
+.stock-pct{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--dim);width:36px;text-align:right;flex-shrink:0}
+ 
+/* CHART */
+.chart-wrap{height:160px;position:relative}
+ 
+/* ALERTA */
+.alert-strip{
+  background:rgba(247,85,85,.08);
+  border:1px solid rgba(247,85,85,.2);
+  border-radius:8px;padding:10px 14px;
+  margin-bottom:12px;
+  display:flex;align-items:center;gap:10px;
+  font-size:12px;color:#F75555;
+}
+ 
+/* SCROLLBAR */
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:2px}
 `
-
+ 
 export default function Dashboard() {
   const router = useRouter()
   const chartRef = useRef(null)
@@ -78,310 +224,492 @@ export default function Dashboard() {
   const [perfil,    setPerfil]    = useState(null)
   const [proyectos, setProyectos] = useState([])
   const [semaforos, setSemaforos] = useState([])
-  const [flujoConsolidado, setFlujoConsolidado] = useState([])
+  const [flujo,     setFlujo]     = useState([])
+  const [tcActual,  setTcActual]  = useState(null)
   const [loading,   setLoading]   = useState(true)
   const [busqueda,  setBusqueda]  = useState('')
-
-  useEffect(() => {
-    async function load() {
-      try {
-        const { data:{ user } } = await supabase.auth.getUser()
-        if (!user) { router.push('/login'); return }
-        const { data:perf } = await supabase.from('usuarios').select('*').eq('id', user.id).single()
-        if (!perf) { await supabase.auth.signOut(); router.push('/login'); return }
-        setPerfil(perf)
-
-        // Cargar proyectos y semáforos en paralelo — cada query maneja su error
-        const [{ data:projs }, { data:sems }, { data:flujoProy }] = await Promise.all([
-          supabase.from('proyectos').select('*').eq('empresa_id', perf.empresa_id).order('created_at', {ascending:false}),
-          supabase.from('v_semaforos_cartera').select('*').eq('empresa_id', perf.empresa_id),
-          supabase.from('flujo_proyectado').select('mes_numero, costo_planificado, ingreso_proyectado, proyecto_id')
-            .order('mes_numero'),
-        ])
-
-        setProyectos(projs || [])
-        setSemaforos(sems || [])
-
-        // Consolidar flujo de fondos mes a mes
-        if (flujoProy && projs) {
-          const ids = new Set((projs||[]).map(p=>p.id))
-          const cons = {}
-          flujoProy.filter(f=>ids.has(f.proyecto_id)).forEach(f => {
-            if (!cons[f.mes_numero]) cons[f.mes_numero] = {mes:f.mes_numero, egresos:0, ingresos:0}
-            cons[f.mes_numero].egresos  += +f.costo_planificado
-            cons[f.mes_numero].ingresos += +f.ingreso_proyectado
-          })
-          setFlujoConsolidado(Object.values(cons).slice(0,18))
-        }
-      } catch(err) {
-        console.error('Dashboard error:', err)
-      } finally {
-        setLoading(false)
+ 
+  const load = useCallback(async () => {
+    try {
+      const { data:{ user } } = await supabase.auth.getUser()
+      if (!user) { router.push('/login'); return }
+      const { data:perf } = await supabase.from('usuarios').select('*').eq('id', user.id).single()
+      if (!perf) { await supabase.auth.signOut(); router.push('/login'); return }
+      setPerfil(perf)
+ 
+      const [
+        { data:projs },
+        { data:sems },
+        { data:flujoProy },
+        { data:tc },
+      ] = await Promise.all([
+        supabase.from('proyectos').select('*').eq('empresa_id', perf.empresa_id).order('created_at',{ascending:false}),
+        supabase.from('v_semaforos_cartera').select('*').eq('empresa_id', perf.empresa_id),
+        supabase.from('flujo_proyectado').select('mes_numero,costo_planificado,ingreso_proyectado,proyecto_id').order('mes_numero'),
+        supabase.from('tipos_cambio').select('valor,fecha').eq('tipo','valuacion').order('fecha',{ascending:false}).limit(1).maybeSingle(),
+      ])
+ 
+      setProyectos(projs || [])
+      setSemaforos(sems || [])
+      setTcActual(tc?.valor || null)
+ 
+      if (flujoProy && projs) {
+        const ids = new Set((projs||[]).map(p=>p.id))
+        const cons = {}
+        flujoProy.filter(f=>ids.has(f.proyecto_id)).forEach(f => {
+          if (!cons[f.mes_numero]) cons[f.mes_numero] = {mes:f.mes_numero,egresos:0,ingresos:0}
+          cons[f.mes_numero].egresos  += +f.costo_planificado
+          cons[f.mes_numero].ingresos += +f.ingreso_proyectado
+        })
+        setFlujo(Object.values(cons).sort((a,b)=>a.mes-b.mes).slice(0,18))
       }
-    }
-    load()
+    } catch(e) { console.error(e) }
+    finally { setLoading(false) }
   }, [router])
-
+ 
+  useEffect(() => { load() }, [load])
+ 
   // Gráfico flujo consolidado
   useEffect(() => {
-    if (!flujoConsolidado.length || !chartRef.current) return
+    if (!flujo.length || !chartRef.current) return
     import('chart.js/auto').then(({ default: Chart }) => {
       if (chartInst.current) chartInst.current.destroy()
+      // Calcular saldo acumulado
+      let acum = 0
+      const saldoAcum = flujo.map(f => { acum += f.ingresos - f.egresos; return Math.round(acum) })
+ 
       chartInst.current = new Chart(chartRef.current, {
-        type: 'bar',
         data: {
-          labels: flujoConsolidado.map(f=>`M${f.mes}`),
+          labels: flujo.map(f=>`M${f.mes}`),
           datasets: [
-            {label:'Egresos proy.',  data:flujoConsolidado.map(f=>-f.egresos),
-             backgroundColor:'rgba(239,68,68,.3)',  borderColor:'#ef4444', borderWidth:1},
-            {label:'Ingresos proy.', data:flujoConsolidado.map(f=>f.ingresos),
-             backgroundColor:'rgba(34,197,94,.3)',  borderColor:'#22c55e', borderWidth:1},
+            {
+              type: 'bar',
+              label: 'Egresos',
+              data: flujo.map(f=>Math.round(f.egresos)),
+              backgroundColor: 'rgba(247,85,85,.35)',
+              borderColor: 'rgba(247,85,85,.7)',
+              borderWidth: 1,
+              borderRadius: 3,
+              order: 2,
+            },
+            {
+              type: 'bar',
+              label: 'Ingresos',
+              data: flujo.map(f=>Math.round(f.ingresos)),
+              backgroundColor: 'rgba(61,214,140,.3)',
+              borderColor: 'rgba(61,214,140,.7)',
+              borderWidth: 1,
+              borderRadius: 3,
+              order: 2,
+            },
+            {
+              type: 'line',
+              label: 'Saldo acumulado',
+              data: saldoAcum,
+              borderColor: '#C8A96E',
+              backgroundColor: 'rgba(200,169,110,.08)',
+              borderWidth: 2,
+              pointRadius: 2,
+              pointBackgroundColor: '#C8A96E',
+              tension: 0.4,
+              fill: true,
+              yAxisID: 'y2',
+              order: 1,
+            },
           ]
         },
         options:{
           responsive:true, maintainAspectRatio:false, animation:false,
-          plugins:{legend:{position:'bottom',labels:{color:'#6b7280',font:{size:10},boxWidth:10}},
-            tooltip:{callbacks:{label:ctx=>` ${ctx.dataset.label}: ${fmtM(Math.abs(ctx.raw))}`}}},
+          interaction:{ mode:'index', intersect:false },
+          plugins:{
+            legend:{
+              position:'bottom',
+              labels:{ color:'#7C8186', font:{size:10,family:'Inter'}, boxWidth:10, padding:16 }
+            },
+            tooltip:{
+              backgroundColor:'rgba(14,15,17,.95)',
+              borderColor:'rgba(255,255,255,.1)',
+              borderWidth:1,
+              padding:10,
+              callbacks:{
+                label: ctx => {
+                  const v = ctx.raw
+                  const sign = v < 0 ? '-' : ''
+                  const label = ctx.dataset.label
+                  const fmt = `${sign}$${new Intl.NumberFormat('es-AR').format(Math.abs(Math.round(v)))}`
+                  return ` ${label}: ${fmt}`
+                }
+              }
+            }
+          },
           scales:{
-            x:{ticks:{color:'#4b5563',font:{size:10}},grid:{color:'#1f2937'}},
-            y:{ticks:{color:'#4b5563',font:{size:10},callback:v=>fmtM(Math.abs(v))},grid:{color:'#1f2937'}}
+            x:{
+              ticks:{ color:'#4A4F56', font:{size:9}, maxTicksLimit:12 },
+              grid:{ color:'rgba(255,255,255,.04)' },
+              border:{ display:false }
+            },
+            y:{
+              position:'left',
+              ticks:{
+                color:'#4A4F56', font:{size:9},
+                callback: v => v>=1e6?`$${(v/1e6).toFixed(1)}M`:v>=1e3?`$${(v/1e3).toFixed(0)}K`:`$${v}`
+              },
+              grid:{ color:'rgba(255,255,255,.04)' },
+              border:{ display:false }
+            },
+            y2:{
+              position:'right',
+              ticks:{
+                color:'#C8A96E', font:{size:9},
+                callback: v => { const s=v<0?'-':''; const a=Math.abs(v); return a>=1e6?`${s}$${(a/1e6).toFixed(1)}M`:a>=1e3?`${s}$${(a/1e3).toFixed(0)}K`:`${s}$${a}` }
+              },
+              grid:{ drawOnChartArea:false },
+              border:{ display:false }
+            }
           }
         }
       })
     })
     return () => chartInst.current?.destroy()
-  }, [flujoConsolidado])
-
+  }, [flujo])
+ 
   if (loading) return (
-    <div style={{minHeight:'100vh',background:'#0a0c0e',display:'flex',alignItems:'center',
-      justifyContent:'center',fontFamily:'system-ui,sans-serif'}}>
-      <div style={{color:'#22c55e',fontSize:13,fontFamily:'monospace'}}>Cargando panel...</div>
+    <div style={{minHeight:'100vh',background:'#0E0F11',display:'flex',alignItems:'center',
+      justifyContent:'center',fontFamily:'Inter,system-ui,sans-serif'}}>
+      <div style={{textAlign:'center'}}>
+        <div style={{fontFamily:'DM Serif Display,serif',fontSize:28,color:'#C8A96E',marginBottom:8}}>L</div>
+        <div style={{fontSize:11,color:'#4A4F56',letterSpacing:'.1em',textTransform:'uppercase'}}>Cargando panel</div>
+      </div>
     </div>
   )
-
+ 
   const sc = SECTOR_COLOR[perfil?.sector] || SECTOR_COLOR.finanzas
-  const totalM2        = proyectos.reduce((a,p)=>a+(+p.m2_totales||0), 0)
+ 
+  // KPIs consolidados
   const totalEvCosto   = proyectos.reduce((a,p)=>a+(+p.ev_costo_total_usd||0), 0)
   const totalEvIngreso = proyectos.reduce((a,p)=>a+(+p.ev_ingreso_total_usd||0), 0)
-  const margenPond     = totalEvIngreso>0 ? ((totalEvIngreso-totalEvCosto)/totalEvIngreso)*100 : null
-  const conEV          = proyectos.filter(p=>p.ev_costo_total_usd).length
-  const enRiesgo       = semaforos.filter(s=>s.semaforo==='rojo').length
   const costoRealAcum  = semaforos.reduce((a,s)=>a+(+s.costo_real_acum||0), 0)
-  const gdv            = semaforos.reduce((a,s) => {
+  const margenPond     = totalEvIngreso>0 ? ((totalEvIngreso-totalEvCosto)/totalEvIngreso)*100 : null
+  const enRiesgo       = semaforos.filter(s=>s.semaforo==='rojo').length
+  const conEV          = proyectos.filter(p=>p.ev_costo_total_usd).length
+ 
+  // Stock disponible (GDV aproximado)
+  const gdv = semaforos.reduce((a,s) => {
     if (!s.ev_ingreso_total_usd||!s.unidades_total) return a
-    const pctDisp = s.unidades_total>0 ? (s.unidades_total-(s.unidades_no_disponibles||0))/s.unidades_total : 0
+    const pctDisp = (s.unidades_total-(s.unidades_no_disponibles||0))/s.unidades_total
     return a + (+s.ev_ingreso_total_usd*pctDisp)
   }, 0)
-
-  function getSem(id) { return semaforos.find(s=>s.proyecto_id===id)||null }
-
-  const filtrados = proyectos.filter(p=>p.nombre.toLowerCase().includes(busqueda.toLowerCase()))
-  const activos   = filtrados.filter(p=>p.estado==='en_obra')
-  const planif    = filtrados.filter(p=>p.estado==='planificacion')
-  const otros     = filtrados.filter(p=>!['en_obra','planificacion'].includes(p.estado))
-
-  function ProyectoCard({p}) {
-    const sem = getSem(p.id)
-    const tieneEV = !!p.ev_costo_total_usd
-    const ss = SEM[sem?.semaforo||(tieneEV?'gris':'gris')]
-    const cpi = sem?.cpi_actual
-    const cpiColor = !cpi?'#6b7280':cpi>=0.95?'#22c55e':cpi>=0.85?'#f59e0b':'#ef4444'
-    return (
-      <div className="db-pcard">
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
-          <div>
-            <div className="db-pcard-name">{p.nombre}</div>
-            {p.descripcion&&<div className="db-pcard-desc">{p.descripcion}</div>}
-          </div>
-          <div className="db-sem-badge" style={{background:ss.bg,borderColor:ss.border,color:ss.dot,marginLeft:8}}>
-            <div className="db-sem-dot" style={{background:ss.dot}}/>
-            {ss.label}
-          </div>
-        </div>
-        {tieneEV ? (
-          <>
-            <div style={{display:'flex',gap:16,flexWrap:'wrap',marginBottom:10}}>
-              {[
-                {l:'CPI',v:cpi?cpi.toFixed(2):'—',c:cpiColor},
-                {l:'Avance',v:sem?.pct_avance_fisico!=null?fmtP(sem.pct_avance_fisico):'—',c:'#e8ecef'},
-                {l:'Vendido',v:sem?.pct_m2_vendidos!=null?fmtP(sem.pct_m2_vendidos):'—',c:'#22c55e'},
-                {l:'EAC',v:fmtM(sem?.eac),c:'#e8ecef'},
-              ].map((k,i)=>(
-                <div key={i}>
-                  <div style={{fontSize:9,color:'#4b5563',textTransform:'uppercase',letterSpacing:'.06em'}}>{k.l}</div>
-                  <div style={{fontFamily:'Geist Mono,monospace',fontSize:14,fontWeight:600,color:k.c}}>{k.v}</div>
-                </div>
-              ))}
-            </div>
-            {sem?.pct_avance_fisico!=null&&(
-              <div className="db-bar">
-                <div className="db-bar-fill" style={{width:`${Math.min(100,sem.pct_avance_fisico)}%`,
-                  background:cpi>=0.95?'#22c55e':cpi>=0.85?'#f59e0b':'#ef4444'}}/>
-              </div>
-            )}
-          </>
-        ) : (
-          <div style={{fontSize:12,color:'#4b5563',padding:'6px 0 10px',fontStyle:'italic'}}>
-            Sin EV — configurá el baseline financiero
-          </div>
-        )}
-        <div style={{display:'flex',gap:8,marginTop:12}}>
-          {tieneEV
-            ? <button className="db-pcard-btn pri" onClick={()=>router.push(`/proyecto/${p.id}/gestion`)}>📊 Panel</button>
-            : <button className="db-pcard-btn pri" onClick={()=>router.push(`/nuevo-proyecto?id=${p.id}`)}>📊 Cargar EV</button>
-          }
-          <button className="db-pcard-btn" onClick={()=>router.push(`/proyecto/${p.id}`)}>→ Ver proyecto</button>
-        </div>
-      </div>
-    )
-  }
-
-  function Seccion({titulo,lista}) {
-    if (!lista.length) return null
-    return (
-      <>
-        <div className="db-section">{titulo} <span style={{color:'#374151'}}>({lista.length})</span></div>
-        <div className="db-grid">{lista.map(p=><ProyectoCard key={p.id} p={p}/>)}</div>
-      </>
-    )
-  }
-
+ 
+  const filtrados = proyectos.filter(p => p.nombre.toLowerCase().includes(busqueda.toLowerCase()))
+ 
+  function getSem(id) { return semaforos.find(s=>s.proyecto_id===id) }
+ 
   return (
     <div className="db">
       <style>{CSS}</style>
-      <nav className="db-nav">
-        <div style={{display:'flex',alignItems:'center',gap:10}}>
-          <div className="db-logo"><span style={{color:'#0a0c0e',fontSize:15,fontWeight:800}}>L</span></div>
+ 
+      {/* NAVBAR */}
+      <nav className="nav">
+        <div className="nav-logo">
+          <div className="nav-mark">L</div>
           <div>
-            <div style={{fontSize:14,fontWeight:600,lineHeight:1.1}}>Panel-Link</div>
-            <div style={{fontSize:10,color:'#6b7280'}}>Link Inversiones · SIGMA</div>
+            <div className="nav-brand">Panel-Link</div>
+            <div className="nav-sub">Link Inversiones · SIGMA</div>
           </div>
         </div>
-        <div style={{display:'flex',alignItems:'center',gap:10}}>
-          <button className="db-btn-sec" onClick={()=>router.push('/tipo-cambio')}>💱 Tipo de cambio</button>
-          <button className="db-btn-sec" onClick={()=>router.push('/simulador')}>📊 Simulador EV</button>
-          <span style={{fontSize:11,fontWeight:500,padding:'3px 10px',borderRadius:20,background:sc.bg,color:sc.color}}>{perfil?.sector}</span>
-          <span style={{fontSize:13,color:'#6b7280'}}>{perfil?.nombre_completo}</span>
+        <div className="nav-actions">
+          <input
+            placeholder="Buscar proyecto..."
+            value={busqueda} onChange={e=>setBusqueda(e.target.value)}
+            style={{padding:'5px 12px',borderRadius:6,border:'1px solid rgba(255,255,255,.08)',
+              background:'rgba(255,255,255,.04)',color:'#E8E9EB',fontSize:12,
+              fontFamily:'Inter,sans-serif',outline:'none',width:180}}
+          />
+          <button className="nav-btn" onClick={()=>router.push('/tipo-cambio')}>💱 TC</button>
+          <button className="nav-btn" onClick={()=>router.push('/simulador')}>📊 Simulador</button>
+          <button className="nav-btn pri" onClick={()=>router.push('/nuevo-proyecto')}>+ Nuevo proyecto</button>
+          <span className="nav-sector" style={{background:sc.bg,color:sc.color}}>{perfil?.sector}</span>
+          <span style={{fontSize:12,color:'#4A4F56'}}>{perfil?.nombre_completo}</span>
           <button onClick={async()=>{await supabase.auth.signOut();router.push('/login')}}
-            style={{fontSize:12,color:'#4b5563',background:'none',border:'none',cursor:'pointer'}}>Salir</button>
+            style={{fontSize:11,color:'#4A4F56',background:'none',border:'none',cursor:'pointer'}}>Salir</button>
         </div>
       </nav>
-
-      <div className="db-main">
-        <div className="db-head">
-          <div>
-            <h1 className="db-h1">Control de Gestión</h1>
-            <div className="db-sub">{proyectos.length} proyectos · {conEV} con EV · {new Date().toLocaleDateString('es-AR',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>
+ 
+      {/* TICKER */}
+      <div className="ticker">
+        {[
+          {label:'GDV disponible', val:fmtM(gdv), sub:'Stock al precio EV', color:'#C8A96E'},
+          {label:'EV consolidado', val:fmtM(totalEvCosto), sub:`${conEV} proyectos`, color:'#E8E9EB'},
+          {label:'Costo real acum.', val:fmtM(costoRealAcum), sub:'Certificados cargados', color:'#E8E9EB'},
+          {label:'Margen EV pond.', val:margenPond?fmtP(margenPond):'—', sub:'Sobre precio de venta',
+           color:margenPond>=20?'#3DD68C':margenPond>=15?'#F5A623':'#F75555'},
+          {label:'TC valuación', val:tcActual?fmtTC(tcActual):'—', sub:'ARS/USD vigente', color:'#E8E9EB'},
+          {label:'En riesgo', val:String(enRiesgo), sub:enRiesgo===0?'Todos en control':'CPI < 0.85',
+           color:enRiesgo===0?'#3DD68C':'#F75555'},
+        ].map((k,i)=>(
+          <div key={i} className="ticker-item">
+            <div className="ticker-label">{k.label}</div>
+            <div className="ticker-val" style={{color:k.color}}>{k.val}</div>
+            <div className="ticker-sub">{k.sub}</div>
           </div>
-          <div style={{display:'flex',gap:10}}>
-            <button className="db-btn-pri" onClick={()=>router.push('/nuevo-proyecto')}>
-              <span style={{fontSize:18,lineHeight:1}}>+</span> Nuevo proyecto
-            </button>
-          </div>
-        </div>
-
-        {/* Alertas */}
-        {enRiesgo>0&&(
-          <div className="db-alert">
-            <span style={{fontSize:16}}>⚠️</span>
-            <div>
-              <strong>{enRiesgo} proyecto{enRiesgo>1?'s':''} en estado crítico</strong>
-              {semaforos.filter(s=>s.semaforo==='rojo').map(s=>(
-                <button key={s.proyecto_id} onClick={()=>router.push(`/proyecto/${s.proyecto_id}/gestion`)}
-                  style={{marginLeft:12,fontSize:11,color:'#fca5a5',background:'none',border:'none',cursor:'pointer',textDecoration:'underline'}}>
-                  → {s.nombre}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* KPIs */}
-        <div className="db-kpis">
-          {[
-            {l:'GDV Cartera',          v:fmtM(gdv),             s:'Stock disponible valorizado',  c:'#22c55e'},
-            {l:'Costo EV consolidado', v:fmtM(totalEvCosto),    s:`${conEV} proyectos con EV`,    c:'#e8ecef'},
-            {l:'Costo real acumulado', v:fmtM(costoRealAcum),   s:'Suma de certificados',         c:'#e8ecef'},
-            {l:'Margen EV ponderado',  v:margenPond?fmtP(margenPond):'—', s:'Sobre precio de venta', c:margenPond>=20?'#22c55e':margenPond>=15?'#f59e0b':'#ef4444'},
-            {l:'Proyectos en riesgo',  v:String(enRiesgo),      s:enRiesgo===0?'Todos en control':'Requieren atención', c:enRiesgo===0?'#22c55e':'#ef4444'},
-          ].map((k,i)=>(
-            <div key={i} className="db-kpi">
-              <div className="db-kpi-l">{k.l}</div>
-              <div className="db-kpi-v" style={{color:k.c}}>{k.v}</div>
-              <div className="db-kpi-s">{k.s}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Flujo consolidado */}
-        {flujoConsolidado.length>0&&(
-          <div className="db-chart-wrap">
-            <div className="db-chart-title">Flujo de fondos proyectado consolidado — todos los proyectos (próximos 18 meses)</div>
-            <div style={{height:200}}><canvas ref={chartRef}/></div>
+        ))}
+      </div>
+ 
+      <div className="main">
+ 
+        {/* ALERTAS */}
+        {enRiesgo>0 && (
+          <div className="alert-strip">
+            <span style={{fontSize:16}}>⚠</span>
+            <span><strong>{enRiesgo} proyecto{enRiesgo>1?'s':''} en estado crítico</strong> — CPI por debajo de 0.85 o descalce comercial superior al 20%.</span>
+            {semaforos.filter(s=>s.semaforo==='rojo').map(s=>(
+              <button key={s.proyecto_id} onClick={()=>router.push(`/proyecto/${s.proyecto_id}/gestion`)}
+                style={{marginLeft:4,fontSize:11,color:'#F75555',background:'none',border:'none',
+                  cursor:'pointer',textDecoration:'underline',fontFamily:'inherit'}}>
+                → {s.nombre}
+              </button>
+            ))}
           </div>
         )}
-
-        {/* Tabla semáforo */}
-        {semaforos.length>0&&(
-          <div className="db-tbl-wrap">
-            <table className="db-tbl">
+ 
+        {/* ROW 1: Semáforos + Flujo */}
+        <div className="row row-2" style={{gridTemplateColumns:'1.4fr 1fr'}}>
+ 
+          {/* Semáforos */}
+          <div className="card">
+            <div className="sec-head">
+              <span className="card-title">Estado de proyectos</span>
+              <span style={{fontSize:10,color:'#4A4F56'}}>{semaforos.length} con EV</span>
+            </div>
+            <div className="sem-grid">
+              {filtrados.map(p => {
+                const s = getSem(p.id)
+                const tieneEV = !!p.ev_costo_total_usd
+                const ss = SEM_CFG[s?.semaforo||(tieneEV?'gris':'gris')]
+                const cpi = s?.cpi_actual
+                const avance = s?.pct_avance_fisico
+                return (
+                  <div key={p.id} className="sem-card"
+                    style={{background:ss.bg, borderColor:ss.border}}
+                    onClick={()=>router.push(tieneEV?`/proyecto/${p.id}/gestion`:`/nuevo-proyecto?id=${p.id}`)}>
+                    <div className="sem-dot" style={{background:ss.color}}/>
+                    <div className="sem-card-name" style={{color:ss.color,paddingRight:14}}>{p.nombre}</div>
+                    {tieneEV && s ? (
+                      <>
+                        <div className="sem-card-metrics">
+                          <div className="sem-metric">
+                            <span className="sem-metric-l">CPI</span>
+                            <span className="sem-metric-v" style={{color:ss.color}}>{cpi?cpi.toFixed(2):'—'}</span>
+                          </div>
+                          <div className="sem-metric">
+                            <span className="sem-metric-l">Avance</span>
+                            <span className="sem-metric-v">{avance!=null?fmtP(avance):'—'}</span>
+                          </div>
+                          <div className="sem-metric">
+                            <span className="sem-metric-l">Vendido</span>
+                            <span className="sem-metric-v" style={{color:'#3DD68C'}}>
+                              {s.pct_m2_vendidos!=null?fmtP(s.pct_m2_vendidos):'—'}
+                            </span>
+                          </div>
+                        </div>
+                        {avance!=null && (
+                          <div className="sem-bar-wrap">
+                            <div className="sem-bar"
+                              style={{width:`${Math.min(100,avance)}%`,background:ss.color}}/>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div style={{fontSize:11,color:'#4A4F56',fontStyle:'italic',marginTop:4}}>
+                        {tieneEV?'Sin avance cargado':'Sin EV — clic para configurar'}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+              {filtrados.length===0 && (
+                <div style={{gridColumn:'1/-1',textAlign:'center',padding:'30px',color:'#4A4F56',fontSize:12}}>
+                  Sin proyectos con ese nombre
+                </div>
+              )}
+            </div>
+          </div>
+ 
+          {/* Flujo consolidado */}
+          <div className="card">
+            <div className="sec-head">
+              <span className="card-title">Flujo de fondos proyectado</span>
+              <span style={{fontSize:10,color:'#4A4F56'}}>Consolidado · 18 meses</span>
+            </div>
+            {flujo.length > 0
+              ? <div className="chart-wrap"><canvas ref={chartRef}/></div>
+              : <div style={{height:160,display:'flex',alignItems:'center',justifyContent:'center',color:'#4A4F56',fontSize:12}}>
+                  Sin datos de flujo proyectado
+                </div>
+            }
+            {flujo.length > 0 && (
+              <div style={{display:'flex',gap:16,marginTop:12,paddingTop:10,borderTop:'1px solid rgba(255,255,255,.06)'}}>
+                {[
+                  {l:'Total egresos 18m', v:fmtM(flujo.reduce((a,f)=>a+f.egresos,0)), c:'#F75555'},
+                  {l:'Total ingresos 18m', v:fmtM(flujo.reduce((a,f)=>a+f.ingresos,0)), c:'#3DD68C'},
+                  {l:'Saldo neto', v:fmtM(flujo.reduce((a,f)=>a+f.ingresos-f.egresos,0)),
+                   c:flujo.reduce((a,f)=>a+f.ingresos-f.egresos,0)>=0?'#3DD68C':'#F75555'},
+                ].map((k,i)=>(
+                  <div key={i}>
+                    <div style={{fontSize:9,letterSpacing:'.08em',textTransform:'uppercase',color:'#4A4F56',marginBottom:2}}>{k.l}</div>
+                    <div style={{fontFamily:'JetBrains Mono,monospace',fontSize:13,fontWeight:600,color:k.c}}>{k.v}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+ 
+        {/* ROW 2: Tabla proyectos */}
+        <div className="card" style={{marginBottom:12,padding:0,overflow:'hidden'}}>
+          <div style={{padding:'14px 18px',borderBottom:'1px solid rgba(255,255,255,.06)'}}>
+            <span className="card-title">Detalle de cartera</span>
+          </div>
+          <div style={{overflowX:'auto'}}>
+            <table className="ptbl">
               <thead><tr>
-                <th>Proyecto</th><th className="r">Avance</th><th className="r">% Vendido</th>
-                <th className="r">Descalce</th><th className="r">CPI</th><th className="r">EAC</th>
-                <th className="r">Costo real</th><th className="r">Margen real</th><th>Estado</th>
+                <th>Proyecto</th>
+                <th>Estado</th>
+                <th className="r">Avance</th>
+                <th className="r">% Vendido</th>
+                <th className="r">Descalce</th>
+                <th className="r">CPI</th>
+                <th className="r">EAC</th>
+                <th className="r">Costo real</th>
+                <th className="r">Margen real</th>
+                <th>Semáforo</th>
               </tr></thead>
               <tbody>
-                {semaforos.map(s=>{
-                  const ss=SEM[s.semaforo||'gris']
-                  const cpiC=!s.cpi_actual?'#6b7280':s.cpi_actual>=0.95?'#22c55e':s.cpi_actual>=0.85?'#f59e0b':'#ef4444'
-                  const desc=(s.pct_avance_fisico||0)-(s.pct_m2_vendidos||0)
-                  const dC=Math.abs(desc)<=10?'#22c55e':Math.abs(desc)<=20?'#f59e0b':'#ef4444'
+                {semaforos.length===0 && (
+                  <tr><td colSpan={10} style={{textAlign:'center',padding:'30px',color:'#4A4F56'}}>
+                    Sin datos de avance. Cargá el primer certificado de avance mensual.
+                  </td></tr>
+                )}
+                {semaforos.map(s => {
+                  const ss = SEM_CFG[s.semaforo||'gris']
+                  const cpiC = !s.cpi_actual?'#4A4F56':s.cpi_actual>=0.95?'#3DD68C':s.cpi_actual>=0.85?'#F5A623':'#F75555'
+                  const desc = (s.pct_avance_fisico||0)-(s.pct_m2_vendidos||0)
+                  const dC = Math.abs(desc)<=10?'#3DD68C':Math.abs(desc)<=20?'#F5A623':'#F75555'
+                  const mC = s.margen_real_pct>=20?'#3DD68C':s.margen_real_pct>=10?'#F5A623':'#4A4F56'
                   return (
                     <tr key={s.proyecto_id} onClick={()=>router.push(`/proyecto/${s.proyecto_id}/gestion`)}>
-                      <td><strong>{s.nombre}</strong></td>
-                      <td className="r db-mono">{s.pct_avance_fisico!=null?fmtP(s.pct_avance_fisico):'—'}</td>
-                      <td className="r db-mono" style={{color:'#22c55e'}}>{s.pct_m2_vendidos!=null?fmtP(s.pct_m2_vendidos):'—'}</td>
-                      <td className="r db-mono" style={{color:dC}}>{s.pct_avance_fisico!=null?`${desc>0?'+':''}${desc.toFixed(1)}%`:'—'}</td>
-                      <td className="r db-mono" style={{color:cpiC,fontWeight:600}}>{s.cpi_actual?s.cpi_actual.toFixed(3):'—'}</td>
-                      <td className="r db-mono">{fmtM(s.eac)}</td>
-                      <td className="r db-mono">{fmtM(s.costo_real_acum)}</td>
-                      <td className="r db-mono" style={{color:s.margen_real_pct>=20?'#22c55e':s.margen_real_pct>=10?'#f59e0b':'#6b7280'}}>
-                        {s.margen_real_pct!=null?fmtP(s.margen_real_pct):'—'}
+                      <td><strong style={{fontSize:13}}>{s.nombre}</strong></td>
+                      <td>
+                        <span style={{fontSize:10,color:'#7C8186',textTransform:'capitalize'}}>
+                          {s.estado?.replace('_',' ')||'—'}
+                        </span>
                       </td>
-                      <td><span style={{display:'flex',alignItems:'center',gap:5,fontSize:11,fontWeight:600,
-                        padding:'3px 10px',borderRadius:20,width:'fit-content',
-                        background:ss.bg,border:`1px solid ${ss.border}`,color:ss.dot}}>
-                        <span style={{width:6,height:6,borderRadius:'50%',background:ss.dot,display:'inline-block'}}/>
-                        {ss.label}
-                      </span></td>
+                      <td className="r mono">{s.pct_avance_fisico!=null?fmtP(s.pct_avance_fisico):'—'}</td>
+                      <td className="r mono" style={{color:'#3DD68C'}}>{s.pct_m2_vendidos!=null?fmtP(s.pct_m2_vendidos):'—'}</td>
+                      <td className="r mono" style={{color:dC}}>
+                        {s.pct_avance_fisico!=null?`${desc>0?'+':''}${desc.toFixed(1)}%`:'—'}
+                      </td>
+                      <td className="r mono" style={{color:cpiC,fontWeight:600}}>
+                        {s.cpi_actual?s.cpi_actual.toFixed(3):'—'}
+                      </td>
+                      <td className="r mono">{fmtM(s.eac)}</td>
+                      <td className="r mono">{fmtM(s.costo_real_acum)}</td>
+                      <td className="r mono" style={{color:mC}}>{s.margen_real_pct!=null?fmtP(s.margen_real_pct):'—'}</td>
+                      <td>
+                        <span className="badge" style={{background:ss.bg,border:`1px solid ${ss.border}`,color:ss.color}}>
+                          <span className="badge-dot" style={{background:ss.color}}/>
+                          {ss.label}
+                        </span>
+                      </td>
                     </tr>
                   )
                 })}
               </tbody>
             </table>
           </div>
-        )}
-
-        {/* Buscador + grid */}
-        <div style={{display:'flex',gap:10,marginBottom:20,alignItems:'center'}}>
-          <input placeholder="Buscar proyecto..." value={busqueda} onChange={e=>setBusqueda(e.target.value)}
-            style={{padding:'8px 14px',borderRadius:8,border:'1px solid #1f2937',background:'#111418',
-              color:'#e8ecef',fontSize:13,width:220,outline:'none',fontFamily:'inherit'}}/>
-          <span style={{fontSize:12,color:'#4b5563'}}>{filtrados.length} proyectos</span>
         </div>
-
-        <Seccion titulo="En obra"       lista={activos}/>
-        <Seccion titulo="Planificación" lista={planif}/>
-        <Seccion titulo="Otros"         lista={otros}/>
-
-        {filtrados.length===0&&(
-          <div style={{textAlign:'center',padding:'60px 20px',color:'#4b5563'}}>
-            <div style={{fontSize:36,marginBottom:12}}>📭</div>
-            <div style={{fontSize:15,color:'#6b7280'}}>No hay proyectos con ese nombre.</div>
+ 
+        {/* ROW 3: Stock disponible */}
+        <div className="row row-2">
+          <div className="card">
+            <div className="card-title">Disponibilidad de stock por proyecto</div>
+            <div style={{marginBottom:10,display:'flex',gap:12,fontSize:9,letterSpacing:'.08em',textTransform:'uppercase',color:'#4A4F56'}}>
+              {[['#F75555','Vendido'],['#C8A96E','Canje'],['#F5A623','Reservado'],['#3DD68C','Disponible']].map(([c,l])=>(
+                <span key={l} style={{display:'flex',alignItems:'center',gap:4}}>
+                  <span style={{width:8,height:8,borderRadius:2,background:c,display:'inline-block'}}/>
+                  {l}
+                </span>
+              ))}
+            </div>
+            {semaforos.map(s => {
+              if (!s.unidades_total) return null
+              const tot = s.unidades_total
+              const noDisp = s.unidades_no_disponibles||0
+              const disp = tot - noDisp
+              const pVend = (noDisp/tot)*80  // aprox split
+              const pDisp = (disp/tot)*100
+              return (
+                <div key={s.proyecto_id} className="stock-row"
+                  onClick={()=>router.push(`/proyecto/${s.proyecto_id}/gestion`)}
+                  style={{cursor:'pointer'}}>
+                  <div className="stock-name">{s.nombre}</div>
+                  <div className="stock-bar-bg">
+                    <div className="stock-vend"  style={{width:`${pVend}%`}}/>
+                    <div className="stock-disp"  style={{width:`${pDisp}%`}}/>
+                  </div>
+                  <div className="stock-pct">{fmtP(pDisp)}</div>
+                </div>
+              )
+            })}
+            {semaforos.length===0 && <div style={{color:'#4A4F56',fontSize:12,textAlign:'center',padding:20}}>Sin datos de stock</div>}
+          </div>
+ 
+          {/* KPIs rápidos */}
+          <div className="card">
+            <div className="card-title">Indicadores clave de cartera</div>
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>
+              {[
+                {l:'Proyectos activos (en obra)', v:proyectos.filter(p=>p.estado==='en_obra').length, unit:'proyectos'},
+                {l:'Proyectos en planificación',  v:proyectos.filter(p=>p.estado==='planificacion').length, unit:'proyectos'},
+                {l:'Con EV cargado',               v:conEV, unit:`de ${proyectos.length}`},
+                {l:'m² cartera total',             v:fmtNum(proyectos.reduce((a,p)=>a+(+p.m2_totales||0),0)), unit:'m²'},
+                {l:'Costo EV total',               v:fmtM(totalEvCosto), unit:'USD'},
+                {l:'Ingreso EV proyectado',        v:fmtM(totalEvIngreso), unit:'USD'},
+                {l:'GDV disponible',               v:fmtM(gdv), unit:'USD'},
+                {l:'TC valuación vigente',         v:tcActual?fmtTC(tcActual):'No cargado', unit:'ARS/USD'},
+              ].map((k,i)=>(
+                <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',
+                  padding:'8px 0',borderBottom:'1px solid rgba(255,255,255,.04)'}}>
+                  <span style={{fontSize:12,color:'#7C8186'}}>{k.l}</span>
+                  <div style={{textAlign:'right'}}>
+                    <span style={{fontFamily:'JetBrains Mono,monospace',fontSize:13,fontWeight:600,color:'#E8E9EB'}}>{k.v}</span>
+                    <span style={{fontSize:10,color:'#4A4F56',marginLeft:4}}>{k.unit}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+ 
+        {/* ROW 4: Proyectos sin EV */}
+        {proyectos.filter(p=>!p.ev_costo_total_usd).length > 0 && (
+          <div className="card" style={{borderColor:'rgba(200,169,110,.15)'}}>
+            <div className="card-title" style={{color:'#C8A96E'}}>Proyectos sin EV — pendientes de configurar</div>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+              {proyectos.filter(p=>!p.ev_costo_total_usd).map(p=>(
+                <button key={p.id}
+                  onClick={()=>router.push(`/nuevo-proyecto?id=${p.id}`)}
+                  style={{padding:'6px 14px',borderRadius:6,fontSize:12,cursor:'pointer',
+                    border:'1px solid rgba(200,169,110,.3)',background:'rgba(200,169,110,.06)',
+                    color:'#C8A96E',fontFamily:'inherit',transition:'all .15s'}}>
+                  {p.nombre} →
+                </button>
+              ))}
+            </div>
           </div>
         )}
+ 
       </div>
     </div>
   )
 }
-//
